@@ -101,22 +101,43 @@ struct ImageInpaintEditor: View {
     @State private var saveHelper: PhotoSaveHelper?
     @State private var mode: InpaintMode = .inpaint
     @State private var contentScale: CGFloat = 1.0
+    @State private var isPreviewingOutpaint: Bool = true
     private let strokeWidth: CGFloat = 20
+
+    private var activeImage: UIImage {
+        editedImage ?? baseImage
+    }
+
+    private var clampedContentScale: CGFloat {
+        max(0.4, min(contentScale, 1.0))
+    }
     
     private var hasMask: Bool {
         switch mode {
         case .inpaint:
             return !drawingStrokes.isEmpty || !currentStroke.isEmpty
         case .outpaint:
-            return contentScale < 0.999
+            return clampedContentScale < 0.999
         }
     }
     
     var body: some View {
         VStack {
-            Text("Draw on the image to mark areas to edit.")
-                .padding(.horizontal)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if mode == .inpaint {
+                Text("Draw on the image to mark areas to edit.")
+                    .padding(.horizontal)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Zoom out to fill in areas for outpainting.")
+                    .padding(.horizontal)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             
             Picker("Mode", selection: $mode) {
                 ForEach(InpaintMode.allCases) { mode in
@@ -126,19 +147,7 @@ struct ImageInpaintEditor: View {
             .pickerStyle(.segmented)
             .padding(.horizontal)
             .onChange(of: mode) { _, newValue in
-                if newValue == .outpaint {
-                    // Force a fresh image for outpainting.
-                    if editedImage != nil {
-                        changeImageAction()
-                        showAlert(title: "Change Image", message: "Pick a fresh image before using Outpaint.")
-                    }
-                    editedImage = nil
-                    drawingStrokes.removeAll()
-                    currentStroke.removeAll()
-                    contentScale = 1.0
-                } else {
-                    contentScale = 1.0
-                }
+                isPreviewingOutpaint = (newValue == .outpaint)
             }
             
             squareCanvas
@@ -198,6 +207,11 @@ struct ImageInpaintEditor: View {
                 stopSpinner()
             }
         }
+        .onChange(of: contentScale) { _, _ in
+            if mode == .outpaint {
+                isPreviewingOutpaint = true
+            }
+        }
         .overlay(alignment: .center) {
             if isEditingImage {
                 ZStack {
@@ -229,16 +243,18 @@ struct ImageInpaintEditor: View {
             let side = min(geo.size.width, geo.size.height)
             let displaySize = fittedImageSize(for: CGSize(width: side, height: side))
             let contentRect = self.contentRect(in: displaySize)
+            let shouldPreviewOutpaint = mode == .outpaint && (isPreviewingOutpaint || isEditingImage)
+            let displayScale: CGFloat = shouldPreviewOutpaint ? clampedContentScale : 1.0
             
             ZStack {
-                let displayImage: UIImage = (mode == .inpaint && editedImage != nil) ? editedImage! : baseImage
+                let displayImage: UIImage = activeImage
                 Image(uiImage: displayImage)
                     .resizable()
                     .scaledToFit()
                     .frame(width: displaySize.width, height: displaySize.height)
-                    .scaleEffect(mode == .outpaint ? contentScale : 1.0)
+                    .scaleEffect(displayScale)
                 
-                if mode == .outpaint {
+                if mode == .outpaint && shouldPreviewOutpaint {
                     EvenOddShape(innerRect: contentRect)
                         .fill(Color(.systemBackground).opacity(0.25), style: FillStyle(eoFill: true))
                         .frame(width: displaySize.width, height: displaySize.height)
@@ -288,6 +304,9 @@ struct ImageInpaintEditor: View {
             .onAppear {
                 updateCanvasSizeIfNeeded(displaySize)
             }
+            .onChange(of: editedImage) { _, _ in
+                updateCanvasSizeIfNeeded(displaySize)
+            }
             .onChange(of: geo.size) { _, newSize in
                 let newSide = min(newSize.width, newSize.height)
                 updateCanvasSizeIfNeeded(fittedImageSize(for: CGSize(width: newSide, height: newSide)))
@@ -297,7 +316,7 @@ struct ImageInpaintEditor: View {
     }
     
     private func contentRect(in displaySize: CGSize) -> CGRect {
-        let scale = max(0.4, min(contentScale, 1.0))
+        let scale = clampedContentScale
         let width = displaySize.width * scale
         let height = displaySize.height * scale
         let origin = CGPoint(x: (displaySize.width - width) / 2, y: (displaySize.height - height) / 2)
@@ -305,9 +324,10 @@ struct ImageInpaintEditor: View {
     }
     
     private func preparedBaseImage() -> UIImage {
-        guard mode == .outpaint else { return baseImage }
-        let scale = max(0.4, min(contentScale, 1.0))
-        let targetSize = baseImage.size
+        let sourceImage = activeImage
+        guard mode == .outpaint else { return sourceImage }
+        let scale = clampedContentScale
+        let targetSize = sourceImage.size
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
@@ -317,7 +337,7 @@ struct ImageInpaintEditor: View {
             let drawWidth = targetSize.width * scale
             let drawHeight = targetSize.height * scale
             let origin = CGPoint(x: (targetSize.width - drawWidth) / 2, y: (targetSize.height - drawHeight) / 2)
-            baseImage.draw(in: CGRect(origin: origin, size: CGSize(width: drawWidth, height: drawHeight)))
+            sourceImage.draw(in: CGRect(origin: origin, size: CGSize(width: drawWidth, height: drawHeight)))
         }
     }
     
@@ -340,6 +360,9 @@ struct ImageInpaintEditor: View {
                                                                 prompt: editPrompt,
                                                                 size: sizeOption)
             editedImage = resultImage
+            if mode == .outpaint {
+                isPreviewingOutpaint = false
+            }
             clearMask()
         } catch {
             showAlert(title: "Error", message: "Failed to edit image: \(error.localizedDescription)")
@@ -376,7 +399,7 @@ struct ImageInpaintEditor: View {
         switch mode {
         case .outpaint:
             ctx.setBlendMode(.clear)
-            let scale = max(0.4, min(contentScale, 1.0))
+            let scale = clampedContentScale
             let drawWidth = CGFloat(width) * scale
             let drawHeight = CGFloat(height) * scale
             let insetX = (CGFloat(width) - drawWidth) / 2
@@ -426,7 +449,7 @@ struct ImageInpaintEditor: View {
     }
     
     private func fittedImageSize(for containerSize: CGSize) -> CGSize {
-        let imgSize = baseImage.size
+        let imgSize = activeImage.size
         guard imgSize.width > 0, imgSize.height > 0 else {
             return .zero
         }
