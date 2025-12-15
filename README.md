@@ -20,10 +20,10 @@ static var apiKey: String = "OPENAI_API_KEY"
 * Receive traditional image prompts:
   
   <img src="https://github.com/neonforestmist/DALL-E-2-SwiftUI/blob/0a56a9d1a942469274a907c1be6ea748639c7776/images/dalle-demo-1.webp" width=35%><br/>
-* Inpaint:
+* Inpaint (via drawing on parts of the image to edit):
  
   <img src="https://github.com/neonforestmist/DALL-E-2-SwiftUI/blob/0a56a9d1a942469274a907c1be6ea748639c7776/images/dalle-demo-2.webp" width=35%><br/>
-* Outpaint:
+* Outpaint (via being able to "zoom" out of an image and describe how the image should be filled):
   
   <img src="https://github.com/neonforestmist/DALL-E-2-SwiftUI/blob/1299faa7045c39b5b73c52ad04f4914cb060bdc7/images/dalle-demo-3.webp" width=35%><br/>
 * You can also natively resize your images saved on your device to be able to use it with Dalle. 
