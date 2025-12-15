@@ -1,4 +1,4 @@
-# Dall-E-2: Getting Started
+# 🖍️ Dall-E-2: Getting Started
 ## You'll need these prerequisites:
 - An OpenAI API Key
 - Xcode and a device/simulator running on at least iOS 17+
@@ -7,11 +7,11 @@
 ```
 git clone https://github.com/neonforestmist/DALL-E-2-SwiftUI.git
 ```
-2. In OpenAIService.swift file, replace:
+2. Once you've opened up the Xcode project, go to OpenAIService.swift file, and replace:
 ```swift
 static var apiKey: String = "OPENAI_API_KEY"
 ```
-With your own api key.
+...with your own api key.
 
 3. Build + run the project! 🎉
 
