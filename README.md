@@ -7,7 +7,7 @@
 ```
 git clone https://github.com/neonforestmist/DALL-E-2-SwiftUI.git
 ```
-2. Once you've opened up the Xcode project, go to OpenAIService.swift file, and replace:
+2. Once you've opened up the Xcode project (in Dalle2/ folder), go to OpenAIService.swift file, and replace:
 ```swift
 static var apiKey: String = "OPENAI_API_KEY"
 ```
