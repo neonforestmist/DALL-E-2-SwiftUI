@@ -30,6 +30,7 @@ static var apiKey: String = "OPENAI_API_KEY"
   
   <img src="https://github.com/neonforestmist/DALL-E-2-SwiftUI/blob/0a56a9d1a942469274a907c1be6ea748639c7776/images/dalle-demo-4.webp" width=35%><br/>
 ## Cost per generation
+> Table derived from OpenAI pricing.
 | Model | Quality |256 x 256| 512 x 512 | 1024 x 1024 |
 |:--------:|:--------:|:--------:|:--------:|:--------:|
 | dall-e-2 | Standard | $0.016 | $0.018 | $0.02 |
