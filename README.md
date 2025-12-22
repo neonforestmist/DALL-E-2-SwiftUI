@@ -1,4 +1,4 @@
-# 🖍️ Dall-E-2: Getting Started
+# 🖍️ DALL-E-2-SwiftUI: Getting Started
 ## You'll need these prerequisites:
 - An OpenAI API Key
 - Xcode and a device/simulator running on at least iOS 17+
