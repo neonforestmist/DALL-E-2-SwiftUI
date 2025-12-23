@@ -14,6 +14,7 @@ struct OpenAIService {
     static var apiKey: String = "OPENAI_API_KEY"
     static let generationURL = URL(string: "https://api.openai.com/v1/images/generations")!
     static let editURL = URL(string: "https://api.openai.com/v1/images/edits")!
+    static let variationsURL = URL(string: "https://api.openai.com/v1/images/variations")!
     private static let jsonDecoder = JSONDecoder()
     
     enum OpenAIServiceError: LocalizedError {
@@ -24,7 +25,7 @@ struct OpenAIService {
         var errorDescription: String? {
             switch self {
             case .missingAPIKey:
-                return "OpenAI API key is missing. Update OpenAIService.apiKey with your key."
+                return "OpenAI API key is missing. Update apiKey variable with your key."
             case let .invalidResponse(status, message):
                 if let message, !message.isEmpty {
                     return "OpenAI returned status \(status): \(message)"
@@ -116,6 +117,44 @@ struct OpenAIService {
             throw OpenAIServiceError.invalidImageData
         }
         return edited
+    }
+
+    static func generateVariations(image: UIImage, n: Int, size: String, model: String = "dall-e-2") async throws -> [UIImage] {
+        guard apiKeyIsConfigured else { throw OpenAIServiceError.missingAPIKey }
+        let boundary = UUID().uuidString
+        var request = URLRequest(url: variationsURL)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        
+        func appendField(name: String, value: String) {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+            body.append(value.data(using: .utf8)!)
+            body.append("\r\n".data(using: .utf8)!)
+        }
+        
+        guard let imageData = image.pngData() else {
+            throw OpenAIServiceError.invalidImageData
+        }
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"image\"; filename=\"image.png\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: image/png\r\n\r\n".data(using: .utf8)!)
+        body.append(imageData)
+        body.append("\r\n".data(using: .utf8)!)
+        appendField(name: "n", value: "\(n)")
+        appendField(name: "size", value: size)
+        appendField(name: "model", value: model)
+        appendField(name: "response_format", value: "url")
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+        
+        let data = try await sendJSONRequest(request)
+        let response = try jsonDecoder.decode(ImageResponse.self, from: data)
+        let images = try await images(from: response.data)
+        guard !images.isEmpty else { throw OpenAIServiceError.invalidImageData }
+        return images
     }
     
     private static func sendJSONRequest(_ request: URLRequest) async throws -> Data {
