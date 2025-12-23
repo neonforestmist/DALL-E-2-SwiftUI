@@ -27,6 +27,11 @@ struct ContentView: View {
                     Image(systemName: "paintbrush.fill")
                     Text("Inpaint")
                 }
+            VariationsView()
+                .tabItem {
+                    Image(systemName: "xmark.triangle.circle.square.fill")
+                    Text("Variations")
+                }
             SettingsView()
                 .tabItem {
                     Image(systemName: "gearshape")
