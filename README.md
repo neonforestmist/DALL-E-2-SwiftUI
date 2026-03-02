@@ -1,3 +1,5 @@
+![dalle2-banner](images/dalle-2-image.png)
+
 # 🖍️ DALL-E-2-SwiftUI: Getting Started
 ## You'll need these prerequisites:
 - An OpenAI API Key
