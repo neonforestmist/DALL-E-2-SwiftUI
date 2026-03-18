@@ -15,6 +15,19 @@ extension Collection {
     }
 }
 
+extension UIImage {
+    func croppedToSquare() -> UIImage {
+        let side = min(size.width, size.height)
+        let origin = CGPoint(
+            x: (size.width - side) / 2,
+            y: (size.height - side) / 2
+        )
+        let cropRect = CGRect(origin: origin, size: CGSize(width: side, height: side))
+        guard let cgImage = cgImage?.cropping(to: cropRect) else { return self }
+        return UIImage(cgImage: cgImage, scale: scale, orientation: imageOrientation)
+    }
+}
+
 final class PhotoSaveHelper: NSObject {
     private let outpaint: (Error?) -> Void
     

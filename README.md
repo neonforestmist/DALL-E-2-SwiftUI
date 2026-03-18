@@ -9,11 +9,11 @@
 ```
 git clone https://github.com/neonforestmist/DALL-E-2-SwiftUI.git
 ```
-2. Once you've opened up the Xcode project (in Dalle2/ folder), go to OpenAIService.swift file, and replace:
-```swift
-static var apiKey: String = "OPENAI_API_KEY"
+2. Copy `.env.example` to a new file called `.env` in the project root and paste your OpenAI API key:
 ```
-...with your own api key.
+OPENAI_API_KEY=sk-your-api-key-here
+```
+> **Tip:** `.env` is a hidden file. If you don't see it in Finder, press **⌘ Cmd + Shift + .** to toggle hidden files.
 
 3. Build + run the project! 🎉
 
@@ -21,20 +21,21 @@ static var apiKey: String = "OPENAI_API_KEY"
 ### Once given a valid api key, it can:
 * Receive traditional image prompts:
   
-  <img src="https://github.com/neonforestmist/DALL-E-2-SwiftUI/blob/0a56a9d1a942469274a907c1be6ea748639c7776/images/dalle-demo-1.webp" width=35%><br/>
+  <img src="images/dalle-demo-1.png" width=35%><br/>
 * Inpaint (via drawing on parts of the image to edit):
- 
-  <img src="https://github.com/neonforestmist/DALL-E-2-SwiftUI/blob/0a56a9d1a942469274a907c1be6ea748639c7776/images/dalle-demo-2.webp" width=35%><br/>
-* Outpaint (via being able to "zoom" out of an image and describe how the image should be filled):
-  
-  <img src="https://github.com/neonforestmist/DALL-E-2-SwiftUI/blob/1299faa7045c39b5b73c52ad04f4914cb060bdc7/images/dalle-demo-3.webp" width=35%><br/>
-* Variations (making variations of an existing image):
-  
-  <img src="https://github.com/neonforestmist/DALL-E-2-SwiftUI/blob/2e953ee3ad0d972cd141f49555885e284e775dc6/images/dalle-demo-5.webp" width=35%><br/>
 
-* You can also natively resize your images saved on your device to be able to use it with Dalle. 
-  
-  <img src="https://github.com/neonforestmist/DALL-E-2-SwiftUI/blob/0a56a9d1a942469274a907c1be6ea748639c7776/images/dalle-demo-4.webp" width=35%><br/>
+  <img src="images/dalle-demo-2.png" width=35%><br/>
+* Outpaint (via being able to "zoom" out of an image and describe how the image should be filled):
+
+  <img src="images/dalle-demo-3.png" width=35%><br/>
+* Variations (making variations of an existing image):
+
+  <img src="images/dalle-demo-5.webp" width=35%><br/>
+  > **Note:** The variations endpoint can be unstable on OpenAI's side and may occasionally return server errors.
+
+* You can also natively resize your images saved on your device to be able to use it with Dalle.
+
+  <img src="images/dalle-demo-4.png" width=35%><br/>
 ## Cost per generation
 > Table derived from OpenAI pricing.
 

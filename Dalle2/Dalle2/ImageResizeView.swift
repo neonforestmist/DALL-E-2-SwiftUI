@@ -25,83 +25,129 @@ struct ImageCropperView: View {
     @State private var isProcessing = false
     @State private var alertItem: AlertItem?
     @State private var saveHelper: PhotoSaveHelper?
+    @State private var cropOffset: CGSize = .zero      // current drag translation
+    @State private var committedOffset: CGSize = .zero  // offset from previous drags
     
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 16) {
-                    PhotosPicker(selection: $pickedPhotoItem, matching: .images, photoLibrary: .shared()) {
-                        Text(originalImage == nil ? "Import Image" : "Change Image")
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color(UIColor.secondarySystemBackground))
-                            .cornerRadius(12)
-                    }
-                    .padding(.horizontal)
-                    .onChange(of: pickedPhotoItem) { _, newItem in
-                        Task { await handlePickedPhoto(newItem) }
-                    }
-                    
-                    if let preview = resizedImage ?? originalImage {
-                        ZStack {
-                            Rectangle()
-                                .fill(Color.black)
-                                .frame(height: 320)
+                    if originalImage == nil {
+                        PhotosPicker(selection: $pickedPhotoItem, matching: .images, photoLibrary: .shared()) {
+                            Text("Import Image")
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color(UIColor.secondarySystemBackground))
                                 .cornerRadius(12)
-                            Image(uiImage: preview)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(height: 300)
-                                .padding(8)
-                                .cornerRadius(8)
                         }
                         .padding(.horizontal)
-                    } else {
+                        .onChange(of: pickedPhotoItem) { _, newItem in
+                            Task { await handlePickedPhoto(newItem) }
+                        }
+
                         Text("Pick an image to resize for use of inpainting.")
                             .foregroundStyle(.secondary)
                             .padding(.top, 40)
                     }
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Output Size")
-                            .font(.headline)
-                        Picker("Output Size", selection: $selectedSize) {
-                            ForEach(SquareSize.allCases) { size in
-                                Text(size.label).tag(size)
+
+                    if let preview = resizedImage ?? originalImage {
+                        let aspect = preview.size.width / preview.size.height
+                        let isWide = aspect > 1
+                        let imgW: CGFloat = isWide ? 300 * aspect : 300
+                        let imgH: CGFloat = isWide ? 300 : 300 / aspect
+                        let maxDragX = max((imgW - 300) / 2, 0)
+                        let maxDragY = max((imgH - 300) / 2, 0)
+                        let totalOffsetW = committedOffset.width + cropOffset.width
+                        let totalOffsetH = committedOffset.height + cropOffset.height
+                        let clampedX = min(max(totalOffsetW, -maxDragX), maxDragX)
+                        let clampedY = min(max(totalOffsetH, -maxDragY), maxDragY)
+
+                        ZStack {
+                            Image(uiImage: preview)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: imgW, height: imgH)
+                                .offset(x: clampedX, y: clampedY)
+                        }
+                        .frame(width: 300, height: 300)
+                        .clipped()
+                        .cornerRadius(12)
+                        .contentShape(Rectangle())
+                        .gesture(
+                            resizedImage == nil ?
+                            DragGesture()
+                                .onChanged { value in
+                                    cropOffset = value.translation
+                                }
+                                .onEnded { value in
+                                    let newW = committedOffset.width + value.translation.width
+                                    let newH = committedOffset.height + value.translation.height
+                                    committedOffset = CGSize(
+                                        width: min(max(newW, -maxDragX), maxDragX),
+                                        height: min(max(newH, -maxDragY), maxDragY)
+                                    )
+                                    cropOffset = .zero
+                                }
+                            : nil
+                        )
+                        .padding(.horizontal)
+                    }
+
+                    if originalImage != nil {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Output Size")
+                                .font(.headline)
+                            Picker("Output Size", selection: $selectedSize) {
+                                ForEach(SquareSize.allCases) { size in
+                                    Text(size.label).tag(size)
+                                }
                             }
+                            .pickerStyle(.segmented)
                         }
-                        .pickerStyle(.segmented)
-                    }
-                    .padding(.horizontal)
-                    
-                    HStack(spacing: 16) {
-                        Button {
-                            Task { await resizeImage() }
-                        } label: {
-                            Label("Resize", systemImage: "arrow.up.left.and.arrow.down.right")
-                                .frame(maxWidth: .infinity)
+                        .padding(.horizontal)
+
+                        HStack(spacing: 16) {
+                            Button {
+                                Task { await resizeImage() }
+                            } label: {
+                                Label("Resize", systemImage: "arrow.up.left.and.arrow.down.right")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(isProcessing)
+
+                            Button {
+                                saveResizedImage()
+                            } label: {
+                                Label("Save", systemImage: "square.and.arrow.down")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(resizedImage == nil)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(originalImage == nil || isProcessing)
-                        
-                        Button {
-                            saveResizedImage()
-                        } label: {
-                            Label("Save", systemImage: "square.and.arrow.down")
-                                .frame(maxWidth: .infinity)
+                        .padding(.horizontal)
+
+                        if isProcessing {
+                            ProgressView("Processing...")
+                                .padding(.top, 8)
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(resizedImage == nil)
-                    }
-                    .padding(.horizontal)
-                    
-                    if isProcessing {
-                        ProgressView("Processing...")
-                            .padding(.top, 8)
                     }
                 }
                 .padding(.vertical)
             }
             .navigationTitle("Resize")
+            .toolbar {
+                if originalImage != nil {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        PhotosPicker(selection: $pickedPhotoItem, matching: .images, photoLibrary: .shared()) {
+                            Text("Change Image")
+                        }
+                        .onChange(of: pickedPhotoItem) { _, newItem in
+                            Task { await handlePickedPhoto(newItem) }
+                        }
+                    }
+                }
+            }
             .alert(item: $alertItem) { item in
                 Alert(
                     title: Text(item.title),
@@ -120,6 +166,8 @@ struct ImageCropperView: View {
                 await MainActor.run {
                     originalImage = image
                     resizedImage = nil
+                    cropOffset = .zero
+                    committedOffset = .zero
                 }
             } else {
                 throw URLError(.badURL)
@@ -134,13 +182,25 @@ struct ImageCropperView: View {
     private func resizeImage() async {
         guard let originalImage else { return }
         guard !isProcessing else { return }
-        
+
         isProcessing = true
         let targetSide = selectedSize.rawValue
-        
+        let offset = committedOffset
+
         DispatchQueue.global(qos: .userInitiated).async {
             let normalized = originalImage.normalizedImage()
-            let result = normalized.resizedToSquareCanvas(side: targetSide)
+
+            // Convert the drag offset from preview coordinates to normalized (-1...1)
+            let aspect = normalized.size.width / normalized.size.height
+            let isWide = aspect > 1
+            let previewW: CGFloat = isWide ? 300 * aspect : 300
+            let previewH: CGFloat = isWide ? 300 : 300 / aspect
+            let maxDragX = max((previewW - 300) / 2, 0)
+            let maxDragY = max((previewH - 300) / 2, 0)
+            let normX: CGFloat = maxDragX > 0 ? offset.width / maxDragX : 0  // -1 to 1
+            let normY: CGFloat = maxDragY > 0 ? offset.height / maxDragY : 0
+
+            let result = normalized.resizedToSquareCanvas(side: targetSide, normalizedOffsetX: normX, normalizedOffsetY: normY)
             DispatchQueue.main.async {
                 resizedImage = result
                 isProcessing = false
@@ -190,23 +250,27 @@ private extension UIImage {
         }
     }
     
-    // Resizes the image to fill a square canvas (no bars) while preserving aspect ratio; excess is clipped.
-    func resizedToSquareCanvas(side: Int) -> UIImage {
+    // Resizes the image to fill a square canvas while preserving aspect ratio.
+    // normalizedOffsetX/Y: -1...1 where 0 = centered, -1 = shifted fully left/up, 1 = shifted fully right/down.
+    func resizedToSquareCanvas(side: Int, normalizedOffsetX: CGFloat = 0, normalizedOffsetY: CGFloat = 0) -> UIImage {
         let targetSide = CGFloat(side)
         let targetSize = CGSize(width: targetSide, height: targetSide)
-        // Work in pixel space to avoid Retina scaling changing the output dimensions.
         let sourceWidth = cgImage.map { CGFloat($0.width) } ?? size.width * scale
         let sourceHeight = cgImage.map { CGFloat($0.height) } ?? size.height * scale
         let aspectWidth = targetSize.width / sourceWidth
         let aspectHeight = targetSize.height / sourceHeight
-        // Use the larger scale to cover the square fully (no borders), then center and crop.
         let scaleFactor = max(aspectWidth, aspectHeight)
         let newSize = CGSize(width: sourceWidth * scaleFactor, height: sourceHeight * scaleFactor)
-        let origin = CGPoint(x: (targetSize.width - newSize.width) / 2,
-                             y: (targetSize.height - newSize.height) / 2)
-        
+        // Center origin, then shift by normalized offset
+        let centerX = (targetSize.width - newSize.width) / 2
+        let centerY = (targetSize.height - newSize.height) / 2
+        let origin = CGPoint(
+            x: centerX + normalizedOffsetX * centerX,
+            y: centerY + normalizedOffsetY * centerY
+        )
+
         let format = UIGraphicsImageRendererFormat()
-        format.scale = 1 // ensure exact pixel output (1 point = 1 pixel)
+        format.scale = 1
         let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
         return renderer.image { _ in
             draw(in: CGRect(origin: origin, size: newSize))

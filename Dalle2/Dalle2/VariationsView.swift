@@ -24,9 +24,9 @@ struct VariationsView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 16) {
-                    if variationImages.isEmpty {
+                    if sourceImage == nil {
                         PhotosPicker(selection: $pickedPhotoItem, matching: .images, photoLibrary: .shared()) {
-                            Text(sourceImage == nil ? "Import Image" : "Change Image")
+                            Text("Import Image")
                                 .frame(maxWidth: .infinity)
                                 .padding()
                                 .background(Color(UIColor.secondarySystemBackground))
@@ -36,89 +36,91 @@ struct VariationsView: View {
                         .onChange(of: pickedPhotoItem) { _, newItem in
                             Task { await handlePickedPhoto(newItem) }
                         }
-                        
-                        if let sourceImage {
-                            VStack(spacing: 12) {
-                                Image(uiImage: sourceImage)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(maxHeight: 320)
-                                
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("How many variations should be included?")
-                                    
-                                    Stepper("Variations: \(variationCount)", value: $variationCount, in: 1...4)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Text("Import an image to create variations.")
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 16)
+                    }
+
+                    if !variationImages.isEmpty {
+                        if let currentImage = variationImages[safe: selectedVariationIndex] {
+                            Image(uiImage: currentImage)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxHeight: 320)
                                 .padding(.horizontal)
-                                
-                                Button(action: {
-                                    Task { await generateVariations() }
-                                }) {
-                                    Text("Generate Variations")
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 8)
-                                }
-                                .disabled(isLoading)
-                                .padding(.horizontal)
-                            }
-                        } else {
-                            Text("Import an image to create variations.")
-                                .foregroundStyle(.secondary)
-                                .padding(.top, 16)
                         }
-                    } else {
-                        VStack(spacing: 12) {
-                            PhotosPicker(selection: $pickedPhotoItem, matching: .images, photoLibrary: .shared()) {
-                                Text("Change Image")
-                                    .frame(maxWidth: .infinity)
-                                    .padding()
-                                    .background(Color(UIColor.secondarySystemBackground))
-                                    .cornerRadius(12)
+
+                        if variationImages.count > 1 {
+                            Text("Variation \(selectedVariationIndex + 1) of \(variationImages.count)")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+
+                            HStack {
+                                Button {
+                                    stepVariation(direction: -1)
+                                } label: {
+                                    Label("Previous", systemImage: "chevron.left")
+                                }
+                                .disabled(selectedVariationIndex == 0)
+
+                                Spacer()
+
+                                Button {
+                                    stepVariation(direction: 1)
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Text("Next")
+                                        Image(systemName: "chevron.right")
+                                    }
+                                }
+                                .disabled(selectedVariationIndex >= variationImages.count - 1)
                             }
                             .padding(.horizontal)
-                            .onChange(of: pickedPhotoItem) { _, newItem in
-                                Task { await handlePickedPhoto(newItem) }
-                            }
-                            
-                            if let currentImage = variationImages[safe: selectedVariationIndex] {
-                                Image(uiImage: currentImage)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(maxHeight: 320)
-                            }
-                            
-                            if variationImages.count > 1 {
-                                Text("Variation \(selectedVariationIndex + 1) of \(variationImages.count)")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                
-                                HStack {
-                                    Button {
-                                        stepVariation(direction: -1)
-                                    } label: {
-                                        Label("Previous", systemImage: "chevron.left")
-                                    }
-                                    .disabled(selectedVariationIndex == 0)
-                                    
-                                    Spacer()
-                                    
-                                    Button {
-                                        stepVariation(direction: 1)
-                                    } label: {
-                                        Label("Next", systemImage: "chevron.right")
-                                    }
-                                    .disabled(selectedVariationIndex >= variationImages.count - 1)
-                                }
-                                .padding(.horizontal)
-                            }
                         }
+                    } else if let sourceImage {
+                        Image(uiImage: sourceImage)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 300, height: 300)
+                            .clipped()
+                            .cornerRadius(12)
+                            .padding(.horizontal)
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("How many variations should be included?")
+
+                            Stepper("Variations: \(variationCount)", value: $variationCount, in: 1...4)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+
+                        Button(action: {
+                            Task { await generateVariations() }
+                        }) {
+                            Text("Generate Variations")
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                        }
+                        .disabled(isLoading)
                         .padding(.horizontal)
                     }
                 }
                 .padding(.vertical)
             }
             .navigationTitle("Variations")
+            .toolbar {
+                if sourceImage != nil {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Change Image") {
+                            pickedPhotoItem = nil
+                            sourceImage = nil
+                            variationImages = []
+                            selectedVariationIndex = 0
+                        }
+                    }
+                }
+            }
             .onChange(of: isLoading) { _, newValue in
                 if newValue {
                     startSpinner()
@@ -160,8 +162,9 @@ struct VariationsView: View {
         do {
             if let data = try await item.loadTransferable(type: Data.self),
                let image = UIImage(data: data) {
+                let cropped = image.croppedToSquare()
                 await MainActor.run {
-                    sourceImage = image
+                    sourceImage = cropped
                     variationImages = []
                     selectedVariationIndex = 0
                     errorMessage = nil

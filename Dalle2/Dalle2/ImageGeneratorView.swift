@@ -49,12 +49,6 @@ struct ImageGeneratorView: View {
                                 .resizable()
                                 .scaledToFit()
                                 .frame(maxHeight: 320)
-                                .padding(12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .fill(Color(UIColor.secondarySystemBackground))
-                                )
-                                .shadow(radius: 6)
                         }
                         
                         if generatedImages.count > 1 {
@@ -69,13 +63,16 @@ struct ImageGeneratorView: View {
                                     Label("Previous", systemImage: "chevron.left")
                                 }
                                 .disabled(selectedImageIndex == 0)
-                                
+
                                 Spacer()
-                                
+
                                 Button {
                                     stepImage(direction: 1)
                                 } label: {
-                                    Label("Next", systemImage: "chevron.right")
+                                    HStack(spacing: 4) {
+                                        Text("Next")
+                                        Image(systemName: "chevron.right")
+                                    }
                                 }
                                 .disabled(selectedImageIndex >= generatedImages.count - 1)
                             }

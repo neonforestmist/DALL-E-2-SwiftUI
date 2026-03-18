@@ -43,6 +43,11 @@ struct ImageInpaintView: View {
                     .onChange(of: pickedPhotoItem) { _, newItem in
                         Task { await handlePickedPhoto(newItem) }
                     }
+
+                    Text("Pick an image to inpaint or outpaint.")
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 16)
+
                     Spacer()
                 }
             }
@@ -69,8 +74,9 @@ struct ImageInpaintView: View {
         do {
             if let data = try await item.loadTransferable(type: Data.self),
                let image = UIImage(data: data) {
+                let cropped = image.croppedToSquare()
                 await MainActor.run {
-                    selectedImage = image
+                    selectedImage = cropped
                     notice = nil
                 }
             } else {
@@ -101,6 +107,9 @@ struct ImageInpaintEditor: View {
     @State private var saveHelper: PhotoSaveHelper?
     @State private var mode: InpaintMode = .inpaint
     @State private var contentScale: CGFloat = 1.0
+    @State private var offsetX: CGFloat = 0.0  // -1 (left) to 1 (right)
+    @State private var offsetY: CGFloat = 0.0  // -1 (up) to 1 (down)
+    @State private var dragStartOffset: CGPoint = .zero
     @State private var isPreviewingOutpaint: Bool = true
     private let strokeWidth: CGFloat = 20
 
@@ -117,89 +126,79 @@ struct ImageInpaintEditor: View {
         case .inpaint:
             return !drawingStrokes.isEmpty || !currentStroke.isEmpty
         case .outpaint:
-            return clampedContentScale < 0.999
+            return clampedContentScale < 0.999 || abs(offsetX) > 0.001 || abs(offsetY) > 0.001
         }
     }
     
     var body: some View {
-        VStack {
-            if mode == .inpaint {
-                Text("Draw on the image to mark areas to edit.")
-                    .padding(.horizontal)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(nil)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text("Zoom out to fill in areas for outpainting.")
-                    .padding(.horizontal)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(nil)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            
-            Picker("Mode", selection: $mode) {
-                ForEach(InpaintMode.allCases) { mode in
-                    Text(mode.rawValue).tag(mode)
+        ScrollView {
+            VStack(spacing: 12) {
+                Picker("Mode", selection: $mode) {
+                    ForEach(InpaintMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
                 }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .onChange(of: mode) { _, newValue in
-                isPreviewingOutpaint = (newValue == .outpaint)
-            }
-            
-            squareCanvas
-                .frame(width: 320, height: 320)
+                .pickerStyle(.segmented)
                 .padding(.horizontal)
-            
-            if mode == .outpaint {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Zoom Out Scale")
-                    Slider(value: $contentScale, in: 0.4...1.0, step: 0.05)
-                    Text("Zoom out and then enter a prompt to fill the canvas with something new.")
+                .onChange(of: mode) { _, newValue in
+                    isPreviewingOutpaint = (newValue == .outpaint)
+                }
+
+                squareCanvas
+                    .frame(width: 320, height: 320)
+                    .padding(.horizontal)
+
+                if mode == .outpaint {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Scale")
+                            Slider(value: $contentScale, in: 0.4...1.0, step: 0.05)
+                        }
+
+                        Text("Drag the image to reposition, then describe what to fill in.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal)
+                } else {
+                    Text("Draw on the image to mark areas to edit.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
+                        .padding(.horizontal)
+                }
+
+                TextField("Describe your edit", text: $editPrompt)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .padding(.horizontal)
+
+                HStack(spacing: 16) {
+                    Button {
+                        clearMask()
+                    } label: {
+                        Label("Clear", systemImage: "trash")
+                    }
+
+                    Button("Apply Edit") {
+                        Task { await applyEdit() }
+                    }
+                    .disabled(isEditingImage || editPrompt.trimmingCharacters(in: .whitespaces).isEmpty || !hasMask)
+
+                    Button {
+                        saveEditedImage()
+                    } label: {
+                        Label("Save", systemImage: "square.and.arrow.down")
+                    }
+                    .disabled(editedImage == nil)
                 }
                 .padding(.horizontal)
             }
-            
-            TextField("Describe your edit", text: $editPrompt)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .padding()
-            
-            HStack {
-                Button {
-                    clearMask()
-                } label: {
-                    Label("Clear", systemImage: "trash")
-                }
-                .padding()
-                
-                Button("Apply Edit") {
-                    Task { await applyEdit() }
-                }
-                .disabled(isEditingImage || editPrompt.trimmingCharacters(in: .whitespaces).isEmpty || !hasMask)
-                .padding()
-                
-                Button {
-                    saveEditedImage()
-                } label: {
-                    Label("Save", systemImage: "square.and.arrow.down")
-                }
-                .disabled(editedImage == nil)
-                .padding()
-            }
+            .padding(.vertical)
         }
         .alert(alertTitle, isPresented: $showingAlert) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(alertMessage)
         }
-        .padding()
         .onChange(of: isEditingImage) { _, newValue in
             if newValue {
                 startSpinner()
@@ -248,16 +247,45 @@ struct ImageInpaintEditor: View {
             
             ZStack {
                 let displayImage: UIImage = activeImage
+                let pixelOffsetX = shouldPreviewOutpaint ? offsetX * (1 - clampedContentScale) / 2 * displaySize.width : 0
+                let pixelOffsetY = shouldPreviewOutpaint ? offsetY * (1 - clampedContentScale) / 2 * displaySize.height : 0
                 Image(uiImage: displayImage)
                     .resizable()
                     .scaledToFit()
                     .frame(width: displaySize.width, height: displaySize.height)
                     .scaleEffect(displayScale)
+                    .offset(x: pixelOffsetX, y: pixelOffsetY)
                 
                 if mode == .outpaint && shouldPreviewOutpaint {
                     EvenOddShape(innerRect: contentRect)
                         .fill(Color(.systemBackground).opacity(0.25), style: FillStyle(eoFill: true))
                         .frame(width: displaySize.width, height: displaySize.height)
+
+                    // Drag gesture overlay for repositioning
+                    Rectangle()
+                        .fill(Color.clear)
+                        .frame(width: displaySize.width, height: displaySize.height)
+                        .contentShape(Rectangle())
+                        .gesture(DragGesture()
+                            .onChanged { value in
+                                let maxTravel = (1 - clampedContentScale) / 2
+                                guard maxTravel > 0.001 else { return }
+                                let dx = value.translation.width / (displaySize.width * maxTravel)
+                                let dy = value.translation.height / (displaySize.height * maxTravel)
+                                let newX = dragStartOffset.x + dx
+                                let newY = dragStartOffset.y + dy
+                                offsetX = min(max(newX, -1), 1)
+                                offsetY = min(max(newY, -1), 1)
+                            }
+                            .onEnded { _ in
+                                dragStartOffset = CGPoint(x: offsetX, y: offsetY)
+                            }
+                        )
+                        .onAppear {
+                            dragStartOffset = CGPoint(x: offsetX, y: offsetY)
+                        }
+                } else if mode == .outpaint {
+                    // Not previewing but still outpaint — no interaction needed
                 } else {
                     Path { path in
                         for stroke in drawingStrokes {
@@ -319,7 +347,12 @@ struct ImageInpaintEditor: View {
         let scale = clampedContentScale
         let width = displaySize.width * scale
         let height = displaySize.height * scale
-        let origin = CGPoint(x: (displaySize.width - width) / 2, y: (displaySize.height - height) / 2)
+        let pxOffsetX = offsetX * (1 - scale) / 2 * displaySize.width
+        let pxOffsetY = offsetY * (1 - scale) / 2 * displaySize.height
+        let origin = CGPoint(
+            x: (displaySize.width - width) / 2 + pxOffsetX,
+            y: (displaySize.height - height) / 2 + pxOffsetY
+        )
         return CGRect(origin: origin, size: CGSize(width: width, height: height))
     }
     
@@ -336,7 +369,12 @@ struct ImageInpaintEditor: View {
             UIRectFill(CGRect(origin: .zero, size: targetSize))
             let drawWidth = targetSize.width * scale
             let drawHeight = targetSize.height * scale
-            let origin = CGPoint(x: (targetSize.width - drawWidth) / 2, y: (targetSize.height - drawHeight) / 2)
+            let pxOffsetX = offsetX * (1 - scale) / 2 * targetSize.width
+            let pxOffsetY = offsetY * (1 - scale) / 2 * targetSize.height
+            let origin = CGPoint(
+                x: (targetSize.width - drawWidth) / 2 + pxOffsetX,
+                y: (targetSize.height - drawHeight) / 2 + pxOffsetY
+            )
             sourceImage.draw(in: CGRect(origin: origin, size: CGSize(width: drawWidth, height: drawHeight)))
         }
     }
@@ -354,7 +392,7 @@ struct ImageInpaintEditor: View {
             let preparedBase = preparedBaseImage()
             let maskImage = generateMaskImage(for: preparedBase.size)
             
-            let sizeOption = "\(Int(preparedBase.size.width))x\(Int(preparedBase.size.height))"
+            let sizeOption = closestDalleSize(for: preparedBase.size)
             let resultImage = try await OpenAIService.editImage(baseImage: preparedBase,
                                                                 maskImage: maskImage,
                                                                 prompt: editPrompt,
@@ -387,29 +425,31 @@ struct ImageInpaintEditor: View {
     }
     
     // Create a mask image for inpaint or Outpaint.
+    // DALL-E 2 mask: transparent pixels = areas to edit, opaque pixels = areas to keep.
     func generateMaskImage(for size: CGSize) -> UIImage {
         let width = Int(size.width)
         let height = Int(size.height)
-        
+
         UIGraphicsBeginImageContextWithOptions(CGSize(width: width, height: height), false, 1.0)
         guard let ctx = UIGraphicsGetCurrentContext() else { return baseImage }
-        ctx.setFillColor(UIColor.white.cgColor)
-        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        
+
         switch mode {
         case .outpaint:
-            ctx.setBlendMode(.clear)
+            // Start fully transparent (= everything editable), then fill the content rect as opaque (= keep)
+            ctx.clear(CGRect(x: 0, y: 0, width: width, height: height))
             let scale = clampedContentScale
             let drawWidth = CGFloat(width) * scale
             let drawHeight = CGFloat(height) * scale
-            let insetX = (CGFloat(width) - drawWidth) / 2
-            let insetY = (CGFloat(height) - drawHeight) / 2
-            // Clear outside the content rect (area to fill)
-            ctx.fill(CGRect(x: 0, y: 0, width: CGFloat(width), height: insetY))
-            ctx.fill(CGRect(x: 0, y: CGFloat(height) - insetY, width: CGFloat(width), height: insetY))
-            ctx.fill(CGRect(x: 0, y: insetY, width: insetX, height: drawHeight))
-            ctx.fill(CGRect(x: CGFloat(width) - insetX, y: insetY, width: insetX, height: drawHeight))
+            let pxOffsetX = offsetX * (1 - scale) / 2 * CGFloat(width)
+            let pxOffsetY = offsetY * (1 - scale) / 2 * CGFloat(height)
+            let contentOriginX = (CGFloat(width) - drawWidth) / 2 + pxOffsetX
+            let contentOriginY = (CGFloat(height) - drawHeight) / 2 + pxOffsetY
+            ctx.setFillColor(UIColor.white.cgColor)
+            ctx.fill(CGRect(x: contentOriginX, y: contentOriginY, width: drawWidth, height: drawHeight))
         case .inpaint:
+            // Start fully opaque (= keep everything), then clear stroked areas (= edit)
+            ctx.setFillColor(UIColor.white.cgColor)
+            ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
             ctx.setStrokeColor(UIColor.clear.cgColor)
             let strokeWidthPx = strokeWidth * (CGFloat(width) / (canvasWidth == 0 ? CGFloat(width) : canvasWidth))
             ctx.setLineWidth(strokeWidthPx)
@@ -446,8 +486,18 @@ struct ImageInpaintEditor: View {
     private func clearMask() {
         drawingStrokes.removeAll()
         currentStroke.removeAll()
+        offsetX = 0
+        offsetY = 0
+        dragStartOffset = .zero
     }
     
+    private func closestDalleSize(for imageSize: CGSize) -> String {
+        let side = max(imageSize.width, imageSize.height)
+        if side <= 256 { return "256x256" }
+        if side <= 512 { return "512x512" }
+        return "1024x1024"
+    }
+
     private func fittedImageSize(for containerSize: CGSize) -> CGSize {
         let imgSize = activeImage.size
         guard imgSize.width > 0, imgSize.height > 0 else {
